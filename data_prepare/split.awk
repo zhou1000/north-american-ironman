@@ -1,5 +1,5 @@
 #! /usr/bin/awk -f
-# Author(s): Ming Tong <tongming@qiyi.com>
+# Author(s): Ming Tong <tongm1987@gmail.com>
 # split data to train validation test
 # usage: input training file path
 
