@@ -1,18 +1,21 @@
 # /usr/bin/python
-import csv
+
+# subsample data randomly
+# Yiqian
+# usage: python subsample.py input output ratio
+
 import random
 import sys
-
-# usage: python subsample.py input output ratio
 
 inputfile = sys.argv[1]
 outputfile = sys.argv[2]
 ratio = float(sys.argv[3])
 
 with open(outputfile,'w') as fout:
-    writer = csv.writer(fout)
     with open(inputfile, 'r') as fin:
-        for row in csv.reader(fin):
+        row = fin.next()
+        fout.write(row) # keep the header
+        for row in fin:
             if(random.random() < ratio): # select ratio randomly
-                writer.writerow(row)
+                fout.write(row)
 
