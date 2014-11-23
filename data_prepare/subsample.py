@@ -1,4 +1,4 @@
-# /usr/bin/python
+#! /usr/bin/python
 
 # subsample data randomly
 # Yiqian
@@ -6,6 +6,9 @@
 
 import random
 import sys
+
+if len(sys.argv)!=4:
+    raise Exception("\n USAGE: python subsample.py input output ratio\n")
 
 inputfile = sys.argv[1]
 outputfile = sys.argv[2]
