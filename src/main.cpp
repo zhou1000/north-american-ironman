@@ -1,14 +1,23 @@
 #include <string>
 #include <fstream>
-#include <sstream>
 #include <functional>
+#include <sstream>
 #include <iostream>
 #include <limits>
 #include <cmath>
 #include <ctime>
 #include <iostream>
+#include <gflags/gflags.h>
 #include "FTRL.h"
 
+DEFINE_string(test_file, "", "test file name");
+DEFINE_string(training_file, "", "training file");
+DEFINE_string(model_file, "", "model file");
+DEFINE_string(submission_file, "", "submission  file");
+DEFINE_bool(memory_limited, true, "is pc has enough memory");
+DEFINE_uint64(D, 2<<20, "hash space");
+DEFINE_int32(epochs, 4, "epoc num");
+DEFINE_double(validation_Ration, 0.01, "validation ration");
 
 using namespace std;
 
@@ -30,117 +39,161 @@ double logLoss(double p, double y) {
 }
 
 int main(int argc, char *argv[]) {
+    google::ParseCommandLineFlags(&argc, &argv, true);
     time_t t0 = time(nullptr);   // get time now
     
-    string usage_str ="usage: main traintrain.csv testfile.csv submissionfile.csv validationRatio";
-    if (argc!=5) {cout<<usage_str<<endl; return 1;}
 
-    ifstream test(argv[2]); // testing file
-    ofstream submission(argv[3]); // result file
-    double validationRatio = stod(argv[4]); // hold some training point for validation
+    double validationRatio = FLAGS_validation_Ration; // hold some training point for validation
 
     int epochs = 1;
-    for (int epoch=0; epoch< epochs; epoch++) {
-        // parameters for FTRL training
-        double alpha = 0.1;
-        double beta = 1;
-        double l1 = 1;
-        double l2 = 1;
-        unsigned long D = 1<<20;
+    unsigned long D = FLAGS_D;
+    FTRL learner(D);
+    if (!FLAGS_model_file.empty()) {
+        learner.LoadModel(FLAGS_model_file);
+        D = learner.ModelSize();
+    }
+    hash<string> hashFun;
+    if (!FLAGS_training_file.empty()) {
+        double logloss_init = 100;
+        if (FLAGS_memory_limited) {
+            for (int epoch=0; epoch< FLAGS_epochs; epoch++) {
+                // open the training file,
+                ifstream file(FLAGS_training_file.c_str());
+                string line;
+                string cell;
+                double loss = 0; // for validation
+                int validationCounter = 0;
+                int trainingCounter = 0;
+                hash<string> hashFun;
 
-        FTRL learner(alpha, beta, l1, l2, D);
+                // read the data, one line each time
+                dataPoint data;
+                while(getline(file,line)) {
+                    stringstream lineStream(line);
+                    getline(lineStream, cell, ','); // first column is id
+                    data.id = stoull(cell);
 
-        // open the training file,
-        ifstream file(argv[1]);
+                    getline(lineStream, cell, ','); // 2nd column is click
+                    if(cell=="1") data.y = 1;
+                    else data.y = 0;
+                    data.x.clear();
+                    while(getline(lineStream,cell,',')) { // the remaining columns
+                        data.x.push_back(hashFun(cell)%D);
+                    }
+                    if (validationRatio != 0) { // if we want have validation during training
+                        if ((trainingCounter+1)%(int(1/validationRatio))==0) {
+                            double p = learner.PredictOne(data.x);
+                            loss += logLoss(p, data.y);
+                            validationCounter += 1;
+                        }
+                        else {
+                            learner.TrainOne(data.x, data.y);
+                            trainingCounter += 1;
+                        }
+                    } else {
+                        learner.TrainOne(data.x, data.y);
+                        trainingCounter += 1;
+                    }
+                }
+                file.close();
+                if (validationRatio != 0) {
+                    double ave_loss = loss/validationCounter;
+                    cout<<"epoch: "<<epoch+1<<" finished, average loss: "<<loss/double(validationCounter)<<endl;
+                    if (logloss_init - ave_loss < 0.00001) {
+                        break;
+                    } else {
+                        logloss_init = ave_loss;
+                    }
+                }
+                cout<<"time passed: "<< int(time(nullptr)) - int(t0)<<" sec"<<endl;
+            }
+        } else {
+            ifstream file(FLAGS_training_file.c_str());
+            string line;
+            string cell;
+            hash<string> hashFun;
+            std::vector<dataPoint> dataSet;
+            dataSet.reserve(1000000);
+            // read the data, one line each time
+            while(getline(file,line)) {
+                dataPoint data;
+                stringstream lineStream(line);
+                getline(lineStream, cell, ','); // first column is id
+                data.id = stoull(cell);
+
+                getline(lineStream, cell, ','); // 2nd column is click
+                if(cell=="1") data.y = 1;
+                else data.y = 0;
+
+                while(getline(lineStream,cell,',')) { // the remaining columns
+                    data.x.push_back(hashFun(cell)%D);
+                }
+                dataSet.emplace_back(move(data));
+            }
+            for (int epoch=0; epoch< FLAGS_epochs; epoch++) {
+                // open the training file,
+                double loss = 0; // for validation
+                int validationCounter = 0;
+                int trainingCounter = 0;
+                for (auto& data: dataSet) {
+                    if (validationRatio != 0) { // if we want have validation during training
+                        if ((trainingCounter+1)%(int(1/validationRatio))==0) {
+                            double p = learner.PredictOne(data.x);
+                            loss += logLoss(p, data.y);
+                            validationCounter += 1;
+                        }
+                        else {
+                            learner.TrainOne(data.x, data.y);
+                            trainingCounter += 1;
+                        }
+                    } else {
+                        learner.TrainOne(data.x, data.y);
+                        trainingCounter += 1;
+                    }
+                }
+                if (validationRatio != 0) {
+                    double ave_loss = loss/validationCounter;
+                    cout<<"epoch: "<<epoch+1<<" finished, average loss: "<<loss/double(validationCounter)<<endl;
+                    if (logloss_init - ave_loss < 0.00001) {
+                        break;
+                    } else {
+                        logloss_init = ave_loss;
+                    }
+                }
+                cout<<"time passed: "<< int(time(nullptr)) - int(t0)<<" sec"<<endl;
+            }
+        }
+        if (!FLAGS_model_file.empty()) {
+            learner.SaveModel(FLAGS_model_file);
+        }
+    }
+    if (!FLAGS_test_file.empty() && !FLAGS_submission_file.empty()) {
+        ifstream test(FLAGS_test_file); // testing file
+        ofstream submission(FLAGS_submission_file); // result file
         string line;
         string cell;
-
-        double loss = 0; // for validation
-        int validationCounter = 0;
-        int trainingCounter = 0;
-        hash<string> hashFun;
-
-        // read the data, one line each time
-        getline(file,line); //skip the header
-        while(getline(file,line)) {
-            dataPoint data;
-            stringstream lineStream(line);
-            getline(lineStream, cell, ','); // first column is id
-            data.id = stoull(cell);
-
-            getline(lineStream, cell, ','); // 2nd column is click
-            if(cell=="1") data.y = 1;
-            else data.y = 0;
-
-            getline(lineStream, cell, ','); // 3rd column is hour, but we don't care YYMMDD, only use HH
-            data.x.push_back(hashFun(cell.substr(6,2))%D); // hash trick
-
-            while(getline(lineStream,cell,',')) { // the remaining columns
-                data.x.push_back(hashFun(cell)%D);
-            }
-            double p = learner.predict(data.x);
-            if (validationRatio != 0) { // if we want have validation during training
-                if ((trainingCounter+1)%(int(1/validationRatio))==0) {
-                    loss += logLoss(p, data.y);
-                    validationCounter += 1;
-                }
-                else {
-                    learner.update(data.x, p, data.y);
-                    trainingCounter += 1;
-                }
-            } else {
-                learner.update(data.x, p, data.y);
-                trainingCounter += 1;
-            }
-        }
-        if (validationRatio != 0) {
-            cout<<"epoch: "<<epoch+1<<" finished, average loss: "<<loss/double(validationCounter)<<endl;
-        }
-
         // start predicting
-
         getline(test, line);
         submission<<"id,click"<<endl;
-
+      
+        dataPoint data;
         while(getline(test,line)) {
-            dataPoint data;
             stringstream lineStream(line);
             getline(lineStream, cell, ','); // 1st column is id
             data.id = stoull(cell);
-
-            getline(lineStream, cell, ','); // 2nd column is YYMMDDHH
-            data.x.push_back(hashFun(cell.substr(6,2))%D); // we don't care YYMMDD, only use HH
-
+            data.x.clear();
             while(getline(lineStream,cell,',')) { // remaining columns
                 data.x.push_back(hashFun(cell)%D);
             }
 
-            double p = learner.predict(data.x);
+            double p = learner.PredictOne(data.x);
             submission<<to_string(data.id)<<","<<to_string(p)<<endl;
         }
-
-        // done one epoch
-        cout<<"time passed: "<< int(time(nullptr)) - int(t0)<<" sec"<<endl;
+        test.close();
+        submission.close();
     }
     return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -1,7 +1,3 @@
-#include <vector>
-#include <map>
-#include <iostream>
-
 // Yiqian, 20141122
 //  FTRL algorithm: Follow the regularized leader - proximal
 //  Reference:
@@ -9,19 +5,21 @@
 
 class FTRL{
     public:
+        FTRL(unsigned long);
+        ~FTRL()=default;
+        double PredictOne(const std::vector<int> &x);
+        void TrainOne(const std::vector<int> &x, const double y);
+        void SaveModel(const std::string&);
+        void LoadModel(const std::string&);
+        inline unsigned long ModelSize () {return w.size();}
+   private:
         double alpha;
         double beta;
         double l1;
         double l2;
-        unsigned long D;
 
         std::vector<double> n;
         std::vector<double> z;
         std::vector<double> w;
-        FTRL(double alpha_ = 0.1, double beta_ = 1, double l1_ = 1, double l2_ = 1, unsigned long D_ = 2<<10);
-        double predict(std::vector<int> &x);
-        void update(std::vector<int> &x, double &p, double &y);
 };
-
-
 
